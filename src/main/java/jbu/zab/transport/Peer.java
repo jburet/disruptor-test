@@ -1,7 +1,6 @@
-package jbu.zab;
+package jbu.zab.transport;
 
 import jbu.zab.msg.NetworkZabMessage;
-import jbu.zab.msg.Propose;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -13,13 +12,9 @@ import java.util.UUID;
 public abstract class Peer {
 
     private UUID id;
-    private InetAddress inetAddress;
-    private int port;
 
-    public Peer(UUID id, String host, int port) throws UnknownHostException {
+    public Peer(UUID id) {
         this.id = id;
-        this.inetAddress = InetAddress.getByName(host);
-        this.port = port;
     }
 
     public UUID getId() {
@@ -43,5 +38,5 @@ public abstract class Peer {
         return id != null ? id.hashCode() : 0;
     }
 
-    abstract void send(NetworkZabMessage networkZabMessage);
+    public abstract void send(NetworkZabMessage networkZabMessage);
 }

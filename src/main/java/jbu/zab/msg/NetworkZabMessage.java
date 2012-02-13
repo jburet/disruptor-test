@@ -1,4 +1,6 @@
 package jbu.zab.msg;
 
-public class NetworkZabMessage implements ZabMessage{
+public abstract class NetworkZabMessage implements ZabMessage{
+
+    public abstract ZabMessageType getMessageType();
 }

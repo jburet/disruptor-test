@@ -18,4 +18,9 @@ public class Ack extends NetworkZabMessage {
     public int getTxnId() {
         return txnId;
     }
+
+    @Override
+    public ZabMessageType getMessageType() {
+        return ZabMessageType.ACK;
+    }
 }

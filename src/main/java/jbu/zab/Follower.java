@@ -4,6 +4,7 @@ import com.lmax.disruptor.*;
 import com.lmax.disruptor.dsl.Disruptor;
 import jbu.zab.event.*;
 import jbu.zab.msg.*;
+import jbu.zab.transport.Peer;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -15,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class Follower {
 
-    private static final int STD_RING_SIZE = 32;
+    private static final int STD_RING_SIZE = 64;
     // Global executors
     private Executor executor = Executors.newCachedThreadPool(new ThreadFactory() {
         private AtomicInteger counter = new AtomicInteger(0);
@@ -50,6 +51,7 @@ public class Follower {
 
 
     private RingBuffer<ProposeTxnEvent> proposeTxnQueue;
+    private Sequence proposeTxnSequence;
 
     // leader
     private Peer leader;
@@ -61,7 +63,9 @@ public class Follower {
     // FIXME Verify disruptor always use same thread for event processing....
     // MUST NOT BE SHARED BY THREAD. ONLY USE BY COMMIT TASK
     private long currentTxnSeq = 0;
-    private ProposeTxn currentTxn;
+    private int currentTxnId = -1;
+    private int currentTxnEpoch;
+    private ApplicationData currentAppData;
 
 
     public Follower(Peer leader, RingBuffer<MsgEvent<ApplicationData>> applicationCallback) {
@@ -94,12 +98,13 @@ public class Follower {
         this.newEpochQueue = instanciateRingWithHandler(MsgEvent.NEWPOCH_EVENT_FACTORY, newEpochHandler, STD_RING_SIZE);
         this.newLeaderQueue = instanciateRingWithHandler(MsgEvent.NEWLEADER_EVENT_FACTORY, newLeaderHandler, STD_RING_SIZE);
         this.commitLeaderQueue = instanciateRingWithHandler(MsgEvent.COMMITLEADER_EVENT_FACTORY, commitLeaderHandler, STD_RING_SIZE);
-        this.proposeQueue = instanciateRingWithHandler(MsgEvent.PROPOSE_EVENT_FACTORY, proposeHandler, STD_RING_SIZE);
+        this.proposeQueue = instanciateRingWithHandler(MsgEvent.PROPOSE_EVENT_FACTORY, proposeHandler, 16);
         this.commitQueue = instanciateRingWithHandler(MsgEvent.COMMIT_EVENT_FACTORY, commitHandler, STD_RING_SIZE);
 
         // internal queue
         // Only one txn at time
-        this.proposeTxnQueue = instanciateRing(TxnEvent.PROPOSE_TXN_EVENT_EVENT_FACTORY, 1);
+        this.proposeTxnSequence = new Sequence();
+        this.proposeTxnQueue = instanciateRing(ProposeTxnEvent.PROPOSE_TXN_EVENT_EVENT_FACTORY, 1, proposeTxnSequence);
 
         this.applicationCallback = applicationCallback;
 
@@ -116,23 +121,23 @@ public class Follower {
         return disruptor.start();
     }
 
-    private RingBuffer instanciateRing(EventFactory eventFactory, int ringSize) {
-        Disruptor<MsgEvent<CEpoch>> disruptor =
-                new Disruptor<MsgEvent<CEpoch>>(eventFactory, executor,
+    private RingBuffer instanciateRing(EventFactory eventFactory, int ringSize, Sequence sequence) {
+        RingBuffer<MsgEvent> ringBuffer =
+                new RingBuffer<MsgEvent>(eventFactory,
                         new SingleThreadedClaimStrategy(ringSize),
                         new SleepingWaitStrategy());
-
-        return disruptor.start();
+        ringBuffer.setGatingSequences(sequence);
+        return ringBuffer;
     }
 
     // receive message
-    void receivePropose(Propose propose) {
+    public void receivePropose(Propose propose) {
         long seq = this.proposeQueue.next();
         this.proposeQueue.get(seq).setMsg(propose);
         this.proposeQueue.publish(seq);
     }
 
-    void receiveCommit(Commit commit) {
+    public void receiveCommit(Commit commit) {
         long seq = this.commitQueue.next();
         this.commitQueue.get(seq).setMsg(commit);
         this.commitQueue.publish(seq);
@@ -141,16 +146,20 @@ public class Follower {
     // processing
     private void processCommit(Commit commit) {
         // get last txn info
-        if (proposeTxnQueue.getCursor() > currentTxnSeq || currentTxn == null) {
+        if (proposeTxnSequence.get() > currentTxnSeq || currentTxnId < 0) {
             // get new txn
-            this.currentTxn = proposeTxnQueue.get(++currentTxnSeq).getProposeTxn();
+            currentTxnSeq = proposeTxnSequence.get();
+            this.currentTxnId = proposeTxnQueue.get(currentTxnSeq).getTxnId();
+            this.currentTxnEpoch = proposeTxnQueue.get(currentTxnSeq).getEpoch();
+            this.currentAppData = proposeTxnQueue.get(currentTxnSeq).getApplicationData();
         }
 
         // verify commit info else throw away commit
-        if (commit.getEpoch() == this.currentTxn.getEpoch() && commit.getTxnId() == this.currentTxn.getTxnId()) {
+        if (commit.getEpoch() == this.currentTxnEpoch && commit.getTxnId() == this.currentTxnId) {
             long seq = this.applicationCallback.next();
-            this.applicationCallback.get(seq).setMsg(this.currentTxn.getApplicationData());
+            this.applicationCallback.get(seq).setMsg(this.currentAppData);
             this.applicationCallback.publish(seq);
+            proposeTxnSequence.set(currentTxnSeq + 1);
         }
 
     }
@@ -161,7 +170,10 @@ public class Follower {
 
         // Add this txn in process queue
         long seq = this.proposeTxnQueue.next();
-        this.proposeTxnQueue.get(seq).setProposeTxn(txn);
+        ProposeTxnEvent evt = this.proposeTxnQueue.get(seq);
+        evt.setTxnId(propose.getTxnId());
+        evt.setEpoch(propose.getEpoch());
+        evt.setApplicationData(propose.getApplicationData());
         this.proposeTxnQueue.publish(seq);
 
         // send ack

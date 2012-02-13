@@ -1,9 +1,6 @@
 package jbu.zab.event;
 
-import jbu.zab.Peer;
 import jbu.zab.msg.ApplicationData;
-
-import java.util.Set;
 
 public class ProposeTxn {
 

@@ -7,6 +7,7 @@ import com.lmax.disruptor.SleepingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import jbu.zab.event.MsgEvent;
 import jbu.zab.msg.*;
+import jbu.zab.transport.Peer;
 import org.junit.Test;
 
 import java.net.UnknownHostException;
@@ -14,7 +15,6 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -25,9 +25,9 @@ public class TestFollower {
     @Test
     public void write_propose_then_ack() throws UnknownHostException, InterruptedException {
         final CountDownLatch count = new CountDownLatch(1);
-        Follower f = new Follower(new Peer(UUID.randomUUID(), "", 8080) {
+        Follower f = new Follower(new Peer(UUID.randomUUID()) {
             @Override
-            void send(NetworkZabMessage networkZabMessage) {
+            public void send(NetworkZabMessage networkZabMessage) {
                 // must receive an ack
                 if (!(networkZabMessage instanceof Ack)) {
                     fail("Not receive ack as first message");
@@ -60,9 +60,9 @@ public class TestFollower {
         RingBuffer<MsgEvent<ApplicationData>> buffer = disruptor.start();
 
         final CountDownLatch count = new CountDownLatch(1);
-        final Follower f = new Follower(new Peer(UUID.randomUUID(), "", 8080) {
+        final Follower f = new Follower(new Peer(UUID.randomUUID()) {
             @Override
-            void send(NetworkZabMessage networkZabMessage) {
+            public void send(NetworkZabMessage networkZabMessage) {
                 // must receive an ack
                 if (!(networkZabMessage instanceof Ack)) {
                     fail("Not receive ack as first message");
@@ -79,12 +79,10 @@ public class TestFollower {
         if (!messageReceived) {
             fail("Timeout ack");
         }
-        messageReceived = receiveApplicationCount.await(1, TimeUnit.SECONDS);
+        messageReceived = receiveApplicationCount.await(100, TimeUnit.SECONDS);
         if (!messageReceived) {
             fail("Timeout receive application");
         }
 
     }
-
-
 }

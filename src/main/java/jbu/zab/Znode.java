@@ -7,8 +7,8 @@ import com.lmax.disruptor.SleepingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import jbu.zab.event.MsgEvent;
 import jbu.zab.msg.ApplicationData;
+import jbu.zab.transport.Peer;
 
-import java.util.Set;
 import java.util.concurrent.Executors;
 
 /**

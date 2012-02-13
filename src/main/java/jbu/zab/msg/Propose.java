@@ -25,4 +25,9 @@ public class Propose extends NetworkZabMessage {
     public ApplicationData getApplicationData() {
         return applicationData;
     }
+
+    @Override
+    public ZabMessageType getMessageType() {
+        return ZabMessageType.PROPOSE;
+    }
 }
