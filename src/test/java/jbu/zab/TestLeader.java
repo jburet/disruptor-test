@@ -118,4 +118,149 @@ public class TestLeader {
         }
     }
 
+    @Test
+    public void publish_many_data_then_processed_in_sequence_with_one_follower() throws UnknownHostException, InterruptedException {
+        final Leader l = new Leader();
+        final CountDownLatch count = new CountDownLatch(100);
+        l.newFollower(new Peer(UUID.randomUUID(), "", 8080) {
+            @Override
+            void send(NetworkZabMessage networkZabMessage) {
+                if (networkZabMessage instanceof Propose) {
+                    // ack
+                    Propose p = (Propose) networkZabMessage;
+                    l.receiveAck(new Ack(p.getEpoch(), p.getTxnId()));
+                }
+
+                if (networkZabMessage instanceof Commit) {
+                    // Verify commit come in order with good payload
+                    System.out.println("Receive message : " + ((Commit) networkZabMessage).getTxnId());
+                    count.countDown();
+                }
+            }
+        });
+
+        for (int i = 0; i < 100; i++) {
+            l.receiveApplicationData(new ApplicationData());
+        }
+
+        boolean messageReceived = count.await(500, TimeUnit.SECONDS);
+        if (!messageReceived) {
+            fail("Timeout");
+        }
+    }
+
+
+    @Test
+    public void publish_many_data_then_processed_in_sequence_with_two_follower() throws UnknownHostException, InterruptedException {
+        final Leader l = new Leader();
+        final CountDownLatch count = new CountDownLatch(200);
+        l.newFollower(new Peer(UUID.randomUUID(), "", 8080) {
+            @Override
+            void send(NetworkZabMessage networkZabMessage) {
+                if (networkZabMessage instanceof Propose) {
+                    // ack
+                    Propose p = (Propose) networkZabMessage;
+                    l.receiveAck(new Ack(p.getEpoch(), p.getTxnId()));
+                }
+
+                if (networkZabMessage instanceof Commit) {
+                    // Verify commit come in order with good payload
+                    System.out.println("Receive message : " + ((Commit) networkZabMessage).getTxnId());
+                    count.countDown();
+                }
+            }
+        });
+
+        l.newFollower(new Peer(UUID.randomUUID(), "", 8080) {
+            @Override
+            void send(NetworkZabMessage networkZabMessage) {
+                if (networkZabMessage instanceof Propose) {
+                    // ack
+                    Propose p = (Propose) networkZabMessage;
+                    l.receiveAck(new Ack(p.getEpoch(), p.getTxnId()));
+                }
+
+                if (networkZabMessage instanceof Commit) {
+                    // Verify commit come in order with good payload
+                    System.out.println("Receive message : " + ((Commit) networkZabMessage).getTxnId());
+                    count.countDown();
+                }
+            }
+        });
+
+        for (int i = 0; i < 100; i++) {
+            l.receiveApplicationData(new ApplicationData());
+        }
+
+        boolean messageReceived = count.await(500, TimeUnit.SECONDS);
+        if (!messageReceived) {
+            fail("Timeout");
+        }
+    }
+
+    @Test
+    public void publish_many_data_then_processed_in_sequence_with_three_follower() throws UnknownHostException, InterruptedException {
+        final Leader l = new Leader();
+        final CountDownLatch count = new CountDownLatch(300);
+        l.newFollower(new Peer(UUID.randomUUID(), "", 8080) {
+            @Override
+            void send(NetworkZabMessage networkZabMessage) {
+                if (networkZabMessage instanceof Propose) {
+                    // ack
+                    Propose p = (Propose) networkZabMessage;
+                    l.receiveAck(new Ack(p.getEpoch(), p.getTxnId()));
+                }
+
+                if (networkZabMessage instanceof Commit) {
+                    // Verify commit come in order with good payload
+                    System.out.println("Receive message : " + ((Commit) networkZabMessage).getTxnId());
+                    count.countDown();
+                }
+            }
+        });
+
+        l.newFollower(new Peer(UUID.randomUUID(), "", 8080) {
+            @Override
+            void send(NetworkZabMessage networkZabMessage) {
+                if (networkZabMessage instanceof Propose) {
+                    // ack
+                    Propose p = (Propose) networkZabMessage;
+                    l.receiveAck(new Ack(p.getEpoch(), p.getTxnId()));
+                }
+
+                if (networkZabMessage instanceof Commit) {
+                    // Verify commit come in order with good payload
+                    System.out.println("Receive message : " + ((Commit) networkZabMessage).getTxnId());
+                    count.countDown();
+                }
+            }
+        });
+
+        l.newFollower(new Peer(UUID.randomUUID(), "", 8080) {
+            @Override
+            void send(NetworkZabMessage networkZabMessage) {
+                if (networkZabMessage instanceof Propose) {
+                    // ack
+                    Propose p = (Propose) networkZabMessage;
+                    l.receiveAck(new Ack(p.getEpoch(), p.getTxnId()));
+                }
+
+                if (networkZabMessage instanceof Commit) {
+                    // Verify commit come in order with good payload
+                    System.out.println("Receive message : " + ((Commit) networkZabMessage).getTxnId());
+                    count.countDown();
+                }
+            }
+        });
+
+        for (int i = 0; i < 100; i++) {
+            l.receiveApplicationData(new ApplicationData());
+        }
+
+        boolean messageReceived = count.await(500, TimeUnit.SECONDS);
+        if (!messageReceived) {
+            fail("Timeout");
+        }
+    }
+
 }

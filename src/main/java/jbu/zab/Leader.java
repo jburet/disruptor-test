@@ -50,6 +50,7 @@ public class Leader {
     private EventHandler<MsgEvent<ApplicationData>> applicationDataHandler;
 
     private RingBuffer<TxnEvent> txnQueue;
+    private Sequence txnSequence;
 
     // Ack message from follower
     private RingBuffer<MsgEvent<Ack>> ackQueue;
@@ -58,13 +59,15 @@ public class Leader {
     // Current follower peers
     private Set<Peer> followers = new HashSet<Peer>();
     private int currentEpoch;
-    private AtomicInteger txnSequence = new AtomicInteger(0);
+    private AtomicInteger txnIdSequence = new AtomicInteger(0);
+
 
     // Ack txn synchro
+    // FIXME Verify disruptor always use same thread for event processing....
     // MUST NOT BE SHARED BY THREAD. ONLY USE BY ACK TASK
-    private long currentTxnSeq = 0;
     private Txn currentTxn;
     private int ackCount = 0;
+    private long currentSeq = -2;
 
 
     public Leader() {
@@ -101,7 +104,9 @@ public class Leader {
 
         // internal queue
         // Only one txn at time
-        this.txnQueue = instanciateRing(TxnEvent.TXN_EVENT_FACTORY, 1);
+        this.txnSequence = new Sequence();
+        this.txnQueue = instanciateRing(TxnEvent.TXN_EVENT_FACTORY, 1, txnSequence);
+
     }
 
     // receive message
@@ -132,26 +137,29 @@ public class Leader {
         return disruptor.start();
     }
 
-    private RingBuffer instanciateRing(EventFactory eventFactory, int ringSize) {
-        Disruptor<MsgEvent<CEpoch>> disruptor =
-                new Disruptor<MsgEvent<CEpoch>>(eventFactory, executor,
+    private RingBuffer instanciateRing(EventFactory eventFactory, int ringSize, Sequence sequence) {
+
+        RingBuffer<MsgEvent> ringBuffer =
+                new RingBuffer<MsgEvent>(eventFactory,
                         new SingleThreadedClaimStrategy(ringSize),
                         new SleepingWaitStrategy());
-
-        return disruptor.start();
+        ringBuffer.setGatingSequences(sequence);
+        return ringBuffer;
     }
 
     // Message handler
     private void processApplicationData(ApplicationData msg) {
         Set<Peer> currentPeer = new HashSet<Peer>(followers);
         // Create a new Txn with current peer, current epoch, and next txnid
-        int newTxnId = txnSequence.getAndIncrement();
+        int newTxnId = txnIdSequence.getAndIncrement();
         Txn txn = new Txn(currentPeer, currentEpoch, newTxnId);
 
         // Add this txn in process queue
+        // Only One transaction active. Ring size to 1 for ensure that
         long seq = this.txnQueue.next();
         this.txnQueue.get(seq).setTxn(txn);
         this.txnQueue.publish(seq);
+        System.out.println("set txnid : " + newTxnId);
 
         // Create a new Proprose msg
         // Send the propose to all current follower
@@ -162,19 +170,23 @@ public class Leader {
 
     private void processAck(Ack ack) {
         // check if new transaction
-        if (txnQueue.getCursor() > currentTxnSeq || currentTxn == null) {
-            // get new txn
-            this.currentTxn = txnQueue.get(++currentTxnSeq).getTxn();
+        if (txnSequence.get() > this.currentSeq) {
+            this.currentSeq = txnSequence.get();
+            this.currentTxn = txnQueue.get(this.currentSeq).getTxn();
+            System.out.println(txnQueue.get(this.currentSeq));
+            System.out.println("Current txn become : " + this.currentTxn.getTxnId() + " with sequence " + currentSeq+" and txnsequence at "+txnSequence.get());
+            ackCount = 0;
         }
 
-        // if ack is for a previous txn throw it
-        // Cannot receive ack with id > currentTxnId....
-        if (ack.getTxnId() == currentTxn.getTxnId()) {
+        System.out.println("receive ack for " + ack.getTxnId() + " current txn : " + currentTxn.getTxnId());
+        if (ack.getTxnId() == currentTxn.getTxnId() && ack.getEpoch() == currentTxn.getEpoch()) {
             ackCount++;
             if (ackCount >= (currentTxn.getCurrentPeer().size() / 2 + 1)) {
+                txnSequence.compareAndSet(this.currentSeq, this.currentSeq + 1);
                 for (Peer p : currentTxn.getCurrentPeer()) {
                     p.send(new Commit(currentEpoch, currentTxn.getTxnId()));
                 }
+
             }
         }
     }

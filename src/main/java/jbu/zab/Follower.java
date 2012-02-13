@@ -1,11 +1,8 @@
 package jbu.zab;
 
-import com.apple.eawt.Application;
 import com.lmax.disruptor.*;
 import com.lmax.disruptor.dsl.Disruptor;
-import jbu.zab.event.MsgEvent;
-import jbu.zab.event.ProposeTxnEvent;
-import jbu.zab.event.TxnEvent;
+import jbu.zab.event.*;
 import jbu.zab.msg.*;
 
 import java.util.concurrent.Executor;
@@ -59,6 +56,12 @@ public class Follower {
 
     // application callback
     private RingBuffer<MsgEvent<ApplicationData>> applicationCallback;
+
+    // commit txn synchro
+    // FIXME Verify disruptor always use same thread for event processing....
+    // MUST NOT BE SHARED BY THREAD. ONLY USE BY COMMIT TASK
+    private long currentTxnSeq = 0;
+    private ProposeTxn currentTxn;
 
 
     public Follower(Peer leader, RingBuffer<MsgEvent<ApplicationData>> applicationCallback) {
@@ -137,14 +140,32 @@ public class Follower {
 
     // processing
     private void processCommit(Commit commit) {
-        long seq = this.applicationCallback.next();
-        // FIXME take data from current txn
-        this.applicationCallback.get(seq).setMsg(null);
-        this.applicationCallback.publish(seq);
+        // get last txn info
+        if (proposeTxnQueue.getCursor() > currentTxnSeq || currentTxn == null) {
+            // get new txn
+            this.currentTxn = proposeTxnQueue.get(++currentTxnSeq).getProposeTxn();
+        }
+
+        // verify commit info else throw away commit
+        if (commit.getEpoch() == this.currentTxn.getEpoch() && commit.getTxnId() == this.currentTxn.getTxnId()) {
+            long seq = this.applicationCallback.next();
+            this.applicationCallback.get(seq).setMsg(this.currentTxn.getApplicationData());
+            this.applicationCallback.publish(seq);
+        }
+
     }
 
     private void processPropose(Propose propose) {
-       leader.send(new Ack(propose.getEpoch(), propose.getTxnId()));
+        // create a new proposeTxn
+        ProposeTxn txn = new ProposeTxn(propose.getEpoch(), propose.getTxnId(), propose.getApplicationData());
+
+        // Add this txn in process queue
+        long seq = this.proposeTxnQueue.next();
+        this.proposeTxnQueue.get(seq).setProposeTxn(txn);
+        this.proposeTxnQueue.publish(seq);
+
+        // send ack
+        leader.send(new Ack(propose.getEpoch(), propose.getTxnId()));
     }
 
     private void processCommitLeader(CommitLeader commitLeader) {
